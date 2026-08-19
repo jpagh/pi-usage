@@ -1,0 +1,50 @@
+{
+  "name": "@destiner/pi-usage",
+  "version": "0.1.0",
+  "description": "/usage for pi: how much of each coding subscription is spent — Claude Code, Codex, Cursor, Copilot, OpenCode Go, Z.ai, OpenRouter",
+  "type": "module",
+  "license": "MIT",
+  "author": "Timur Badretdinov (https://github.com/Destiner)",
+  "homepage": "https://github.com/Destiner/pi-usage#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Destiner/pi-usage.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Destiner/pi-usage/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "usage",
+    "subscription",
+    "rate-limit",
+    "claude-code",
+    "codex",
+    "cursor",
+    "github-copilot",
+    "opencode",
+    "openrouter"
+  ],
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "files": ["index.ts", "format.ts", "shared.ts", "providers", "README.md", "LICENSE"],
+  "scripts": {
+    "test": "node test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.84.2",
+    "@earendil-works/pi-tui": "^0.84.2",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

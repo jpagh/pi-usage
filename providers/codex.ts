@@ -1,0 +1,119 @@
+import {
+  clampPercent,
+  decodeJwtPayload,
+  errorMessage,
+  finiteNumber,
+  httpErrorMessage,
+  parseReset,
+  record,
+  request,
+  type ProviderDefinition,
+  type ProviderResult,
+  type UsageWindow,
+} from "../shared.ts";
+
+const USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
+
+function windowSeconds(value: Record<string, unknown>): number | undefined {
+  const seconds = finiteNumber(value.limit_window_seconds);
+  if (seconds !== undefined) return seconds;
+  const minutes = finiteNumber(value.window_minutes);
+  return minutes === undefined ? undefined : minutes * 60;
+}
+
+function parseWindow(
+  value: Record<string, unknown>,
+  label: string,
+): UsageWindow | undefined {
+  const usedPercent = finiteNumber(value.used_percent);
+  if (usedPercent === undefined) return undefined;
+  return {
+    label,
+    usedPercent: clampPercent(usedPercent),
+    resetsAt: parseReset(value.reset_at ?? value.resets_at),
+  };
+}
+
+/**
+ * Codex reports two windows whose order is not stable, so classify by declared duration: up to six
+ * hours is the session window, a day or more is the weekly one.
+ */
+export function classifyCodexWindows(
+  rateLimit: Record<string, unknown> | undefined,
+): UsageWindow[] {
+  let session: UsageWindow | undefined;
+  let week: UsageWindow | undefined;
+
+  for (const raw of [rateLimit?.primary_window, rateLimit?.secondary_window]) {
+    const value = record(raw);
+    if (!value) continue;
+    const duration = windowSeconds(value);
+    const isSession =
+      duration !== undefined
+        ? duration <= 6 * 60 * 60
+        : session === undefined;
+
+    if (isSession) {
+      session ??= parseWindow(value, "Session");
+    } else {
+      week ??= parseWindow(value, "Week");
+    }
+  }
+
+  return [session, week].filter(
+    (value): value is UsageWindow => value !== undefined,
+  );
+}
+
+function accountId(accessToken: string): string | undefined {
+  const auth = record(
+    decodeJwtPayload(accessToken)?.["https://api.openai.com/auth"],
+  );
+  return typeof auth?.chatgpt_account_id === "string"
+    ? auth.chatgpt_account_id
+    : undefined;
+}
+
+export const codexProvider: ProviderDefinition = {
+  name: "Codex",
+  fetch: async (ctx): Promise<ProviderResult> => {
+    const resolved = await ctx.modelRegistry
+      .getProviderAuth("openai-codex")
+      .catch(() => undefined);
+    const accessToken = resolved?.auth.apiKey;
+    if (!resolved || resolved.source !== "OAuth" || !accessToken) {
+      return { status: "absent", message: "not connected in Pi" };
+    }
+
+    const account = accountId(accessToken);
+    if (!account) {
+      return { status: "error", message: "could not identify the account" };
+    }
+
+    try {
+      const { status, body } = await request(USAGE_URL, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "chatgpt-account-id": account,
+          "user-agent": "pi-subscription-usage/1.0",
+        },
+      });
+      if (status === 401 || status === 403) {
+        return {
+          status: "error",
+          message: "Codex token was rejected — sign in again",
+        };
+      }
+      if (status < 200 || status >= 300) {
+        return { status: "error", message: httpErrorMessage(status) };
+      }
+
+      return {
+        status: "ok",
+        windows: classifyCodexWindows(record(record(body)?.rate_limit)),
+      };
+    } catch (error) {
+      return { status: "error", message: errorMessage(error) };
+    }
+  },
+};
