@@ -45,7 +45,7 @@ places the vendors' own tools already put them, and never logged, copied, or per
 
 | Provider | Meters | Credentials, in order |
 |---|---|---|
-| Claude Code | Session, Week | pi's `anthropic` OAuth, then `~/.claude/.credentials.json` (`CLAUDE_CONFIG_DIR`) |
+| Claude Code | Session, Week | pi's `anthropic` OAuth, then `~/.claude/.credentials.json` (`CLAUDE_CONFIG_DIR`), then the macOS keychain |
 | Codex | Session, Week | pi's `openai-codex` OAuth |
 | Cursor | Cycle | `CURSOR_API_KEY`, then the CLI's `auth.json`, then Cursor's `state.vscdb`, then the macOS keychain; `CURSOR_SESSION_TOKEN` overrides all of them |
 | GitHub Copilot | Credits, Chat, Completions | `~/.config/github-copilot/{apps,hosts}.json`, then `~/.config/gh/hosts.yml`, then pi's `github-copilot` credential |
@@ -61,6 +61,8 @@ Notes:
   key/value store (read via `node:sqlite`, `bun:sqlite`, or the `sqlite3` CLI) and is refreshed in
   memory when expired. `CURSOR_SESSION_TOKEN` (the dashboard's `WorkosCursorSessionToken` cookie)
   skips credential discovery entirely.
+- **Claude Code** on macOS keeps its credential in the login keychain and writes no
+  `.credentials.json` at all, so the keychain is read when the file is missing.
 - **Copilot** needs the GitHub OAuth token that `gh auth login` or a Copilot editor plugin writes,
   not the short-lived Copilot API token. Org-managed seats report no per-seat quota, so the plan
   shows with no meters.

@@ -180,6 +180,88 @@ await check("claude: expired Claude Code token reads as absent", async () => {
   assert.equal(calls.length, 0);
 });
 
+/** Stands in for macOS `security`, which prints the entry for `-s <service>` on stdout. */
+function stubSecurity(entries: Record<string, string>) {
+  const binDir = mkdtempSync(join(tmpdir(), "usage-bin-"));
+  writeFileSync(
+    join(binDir, "security"),
+    [
+      "#!/usr/bin/env python3",
+      "import json, sys",
+      `entries = json.loads(${JSON.stringify(JSON.stringify(entries))})`,
+      "service = sys.argv[sys.argv.index('-s') + 1]",
+      "if service not in entries: sys.exit(44)",
+      "print(entries[service])",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  process.env.PATH = `${binDir}:${process.env.PATH}`;
+}
+
+await check("claude: falls back to the macOS keychain when no file exists", async () => {
+  if (process.platform !== "darwin") return;
+  reset();
+  // Claude Code on macOS keeps the credential in the keychain and writes no .credentials.json.
+  stubSecurity({
+    "Claude Code-credentials": JSON.stringify({
+      claudeAiOauth: {
+        accessToken: "sk-ant-oat-keychain",
+        expiresAt: Date.now() + 60_000,
+      },
+    }),
+  });
+  routes["https://api.anthropic.com/api/oauth/usage"] = {
+    body: { five_hour: { utilization: 13 }, seven_day: { utilization: 74 } },
+  };
+
+  const result = await fetchProvider(claudeProvider);
+  assert.deepEqual(windowsOf(result), { Session: 13, Week: 74 });
+  assert.equal(calls[0]?.headers.Authorization, "Bearer sk-ant-oat-keychain");
+});
+
+await check("claude: the credentials file wins over the keychain", async () => {
+  if (process.platform !== "darwin") return;
+  reset();
+  writeJson(join(home, ".claude", ".credentials.json"), {
+    claudeAiOauth: { accessToken: "from-file", expiresAt: Date.now() + 60_000 },
+  });
+  stubSecurity({
+    "Claude Code-credentials": JSON.stringify({
+      claudeAiOauth: { accessToken: "from-keychain", expiresAt: Date.now() + 60_000 },
+    }),
+  });
+  routes["https://api.anthropic.com/api/oauth/usage"] = {
+    body: { five_hour: { utilization: 1 } },
+  };
+
+  await fetchProvider(claudeProvider);
+  assert.equal(calls[0]?.headers.Authorization, "Bearer from-file");
+});
+
+await check("claude: an expired keychain token reads as absent", async () => {
+  if (process.platform !== "darwin") return;
+  reset();
+  stubSecurity({
+    "Claude Code-credentials": JSON.stringify({
+      claudeAiOauth: { accessToken: "stale", expiresAt: Date.now() - 1_000 },
+    }),
+  });
+
+  const result = await fetchProvider(claudeProvider);
+  assert.equal(result.status, "absent");
+  assert.equal(calls.length, 0);
+});
+
+await check("claude: a keychain entry that is not JSON is ignored", async () => {
+  if (process.platform !== "darwin") return;
+  reset();
+  stubSecurity({ "Claude Code-credentials": "not-json" });
+
+  const result = await fetchProvider(claudeProvider);
+  assert.equal(result.status, "absent");
+  assert.equal(calls.length, 0);
+});
+
 await check("claude: rejected token reports an error", async () => {
   reset();
   writeJson(join(home, ".claude", ".credentials.json"), {

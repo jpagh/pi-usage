@@ -15,6 +15,7 @@ import {
   parseReset,
   decodeJwtPayload,
   readJsonIfPresent,
+  readKeychain,
   record,
   request,
   type ProviderDefinition,
@@ -178,21 +179,6 @@ function copyForReading(dbPath: string): string {
     if (existsSync(dbPath + suffix)) copyFileSync(dbPath + suffix, copy + suffix);
   }
   return copy;
-}
-
-/** macOS keeps the tokens in the login keychain for setups that predate the state database. */
-function readKeychain(service: string): string | undefined {
-  if (process.platform !== "darwin") return undefined;
-  try {
-    return nonEmptyString(
-      execFileSync("security", ["find-generic-password", "-s", service, "-w"], {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-      }),
-    );
-  } catch {
-    return undefined;
-  }
 }
 
 interface CursorTokens {

@@ -1,4 +1,5 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -153,6 +154,21 @@ export function envValue(...names: string[]): string | undefined {
 
 export function homePath(...segments: string[]): string {
   return join(homedir(), ...segments);
+}
+
+/** The generic-password entry `service` holds in the macOS login keychain, if this is a Mac. */
+export function readKeychain(service: string): string | undefined {
+  if (process.platform !== "darwin") return undefined;
+  try {
+    return nonEmptyString(
+      execFileSync("security", ["find-generic-password", "-s", service, "-w"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }),
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 /**

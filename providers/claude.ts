@@ -11,6 +11,7 @@ import {
   parseReset,
   piStoredCredential,
   readJsonIfPresent,
+  readKeychain,
   record,
   request,
   type ProviderDefinition,
@@ -19,6 +20,7 @@ import {
 } from "../shared.ts";
 
 const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
+const KEYCHAIN_SERVICE = "Claude Code-credentials";
 
 function window(
   label: string,
@@ -31,6 +33,28 @@ function window(
     usedPercent: clampPercent(usedPercent),
     resetsAt: parseReset(value?.resets_at),
   };
+}
+
+/** The credential file and the macOS keychain both hold the same `claudeAiOauth` payload. */
+function oauthAccessToken(
+  credentials: Record<string, unknown> | undefined,
+): string | undefined {
+  const oauth = record(credentials?.claudeAiOauth);
+  if (typeof oauth?.accessToken !== "string") return undefined;
+  const expiresAt = finiteNumber(oauth.expiresAt);
+  if (expiresAt !== undefined && expiresAt <= Date.now()) return undefined;
+  return oauth.accessToken;
+}
+
+/** The keychain entry is the whole credential document, so a non-object is simply not usable. */
+function keychainCredentials(service: string): Record<string, unknown> | undefined {
+  const raw = readKeychain(service);
+  if (!raw) return undefined;
+  try {
+    return record(JSON.parse(raw));
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -49,14 +73,15 @@ async function resolveAccessToken(
   }
 
   const configDir = envValue("CLAUDE_CONFIG_DIR") ?? homePath(".claude");
-  const credentials = await readJsonIfPresent(
-    join(configDir, ".credentials.json"),
-  ).catch(() => undefined);
-  const oauth = record(credentials?.claudeAiOauth);
-  if (typeof oauth?.accessToken !== "string") return undefined;
-  const expiresAt = finiteNumber(oauth.expiresAt);
-  if (expiresAt !== undefined && expiresAt <= Date.now()) return undefined;
-  return oauth.accessToken;
+  const fromFile = oauthAccessToken(
+    await readJsonIfPresent(join(configDir, ".credentials.json")).catch(
+      () => undefined,
+    ),
+  );
+  if (fromFile) return fromFile;
+
+  // On macOS Claude Code stores the credential in the login keychain and writes no file at all.
+  return oauthAccessToken(keychainCredentials(KEYCHAIN_SERVICE));
 }
 
 export const claudeProvider: ProviderDefinition = {
