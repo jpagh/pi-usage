@@ -203,7 +203,7 @@ interface CursorTokens {
 }
 
 /** Where the Cursor CLI writes the credential it gets from `agent login` or `CURSOR_API_KEY`. */
-function cliAuthPath(platform: string = process.platform): string | undefined {
+export function cliAuthPath(platform: string = process.platform): string | undefined {
   switch (platform) {
     case "darwin":
       return homePath(".cursor", "auth.json");

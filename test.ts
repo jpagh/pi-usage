@@ -17,10 +17,12 @@ import { claudeProvider } from "./providers/claude.ts";
 import { codexProvider } from "./providers/codex.ts";
 import { copilotProvider, ghHostsToken } from "./providers/copilot.ts";
 import {
+  cliAuthPath,
   cursorProvider,
   mapPeriodUsage,
   readWithSqliteCli,
   sessionCookie,
+  stateDbPath,
 } from "./providers/cursor.ts";
 import { opencodeProvider } from "./providers/opencode.ts";
 import { openrouterProvider } from "./providers/openrouter.ts";
@@ -108,6 +110,8 @@ function reset(env: Record<string, string | undefined> = {}) {
     delete process.env[name];
   }
   process.env.HOME = home;
+  // Keeps the win32 credential paths inside the sandbox rather than a real roaming profile.
+  process.env.APPDATA = join(home, "AppData", "Roaming");
   process.env.PATH = originalPath;
   for (const [name, value] of Object.entries(env)) {
     if (value === undefined) delete process.env[name];
@@ -229,6 +233,22 @@ await check("codex: without a Pi credential it is absent", async () => {
 
 // ---------------------------------------------------------------- Cursor
 
+/**
+ * Cursor's credential locations differ per platform, so fixtures resolve them through the
+ * provider's own helpers instead of hardcoding one platform's layout.
+ */
+function cursorStateDbFixture(): string {
+  const path = stateDbPath();
+  assert.ok(path, `no Cursor state database path on ${process.platform}`);
+  return path;
+}
+
+function cursorAuthFixture(): string {
+  const path = cliAuthPath();
+  assert.ok(path, `no Cursor CLI auth path on ${process.platform}`);
+  return path;
+}
+
 function writeCursorStateDb(dbPath: string, values: Record<string, string>) {
   mkdirSync(join(dbPath, ".."), { recursive: true });
   const db = new DatabaseSync(dbPath);
@@ -269,7 +289,7 @@ await check("cursor: state database token drives the Bearer route", async () => 
   reset();
   const token = freshToken();
   writeCursorStateDb(
-    join(home, ".config", "Cursor", "User", "globalStorage", "state.vscdb"),
+    cursorStateDbFixture(),
     { "cursorAuth/accessToken": token, "cursorAuth/refreshToken": "refresh-me" },
   );
   routes["https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage"] =
@@ -331,13 +351,13 @@ await check("cursor: a rejected API key reports the key, not a sign-in", async (
 await check("cursor: the CLI auth.json is preferred over the state database", async () => {
   reset();
   const cliToken = freshToken();
-  writeJson(join(home, ".config", "cursor", "auth.json"), {
+  writeJson(cursorAuthFixture(), {
     accessToken: cliToken,
     refreshToken: "eyJ-refresh",
     apiKey: "crsr_from_file",
   });
   writeCursorStateDb(
-    join(home, ".config", "Cursor", "User", "globalStorage", "state.vscdb"),
+    cursorStateDbFixture(),
     { "cursorAuth/accessToken": jwt({ sub: "auth0|other", exp: 1 }) },
   );
   routes["https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage"] =
@@ -352,7 +372,7 @@ await check("cursor: the CLI auth.json is preferred over the state database", as
 await check("cursor: falls back to the cookie route when the Bearer route has no meters", async () => {
   reset();
   const token = freshToken();
-  writeJson(join(home, ".config", "cursor", "auth.json"), { accessToken: token });
+  writeJson(cursorAuthFixture(), { accessToken: token });
   // An enterprise seat whose planUsage carries no limit or percentage.
   routes["https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage"] =
     { body: { billingCycleEnd: "1787550141000", planUsage: {} } };
@@ -374,7 +394,7 @@ await check("cursor: refreshes an expired access token before querying usage", a
     exp: Math.floor(Date.now() / 1_000) + 3_600,
   });
   writeCursorStateDb(
-    join(home, ".config", "Cursor", "User", "globalStorage", "state.vscdb"),
+    cursorStateDbFixture(),
     {
       "cursorAuth/accessToken": jwt({
         sub: "auth0|user_01ABC",
@@ -400,10 +420,7 @@ await check("cursor: shouldLogout on refresh surfaces a sign-in error", async ()
   // so the flag has to be honoured regardless of status.
   for (const status of [200, 401]) {
     reset();
-    writeCursorStateDb(
-      join(home, ".config", "Cursor", "User", "globalStorage", "state.vscdb"),
-      { "cursorAuth/refreshToken": "dead" },
-    );
+    writeCursorStateDb(cursorStateDbFixture(), { "cursorAuth/refreshToken": "dead" });
     routes["https://api2.cursor.sh/oauth/token"] = {
       status,
       body: { access_token: "", id_token: "", shouldLogout: true },
