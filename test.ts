@@ -951,7 +951,7 @@ await check("openrouter: only shows the account credits meter", async () => {
   if (result.status !== "ok") throw new Error("unreachable");
   assert.deepEqual(
     result.windows.map((w) => [w.label, w.usedPercent, w.trailer]),
-    [["Credits", 41, "$10.25 of $25.00"]],
+    [["Credits", undefined, "$14.75 available"]],
   );
   assert.equal(result.plan, "Pay as you go");
   assert.equal(calls[0]?.headers.Authorization, "Bearer sk-or-test");
@@ -971,7 +971,7 @@ await check("openrouter: an account that never topped up reports zero credits", 
   if (result.status !== "ok") throw new Error("unreachable");
   assert.deepEqual(
     result.windows.map((w) => [w.label, w.trailer]),
-    [["Credits", "$0.00 of $0.00"]],
+    [["Credits", "$0.00 available"]],
   );
   assert.equal(result.plan, "Free tier");
 });
@@ -1093,16 +1093,13 @@ await check("render: entries persisted in the old shape still render", () => {
   assert.equal(lines[5], "  Unavailable: HTTP 500");
 });
 
-await check("render: dollar rows omit the percent column and keep alignment", () => {
+await check("render: dollar rows omit the percent column", () => {
   const text = renderUsageLines(
     [
       {
         name: "OpenRouter",
         plan: "Pay as you go",
-        windows: [
-          { label: "Credits", usedPercent: 41, trailer: "$10.25 of $25.00" },
-          { label: "Balance", trailer: "$14.75 left" },
-        ],
+        windows: [{ label: "Credits", trailer: "$14.75 available" }],
       },
     ],
     plainFormat,
@@ -1110,11 +1107,7 @@ await check("render: dollar rows omit the percent column and keep alignment", ()
 
   assert.equal(
     text,
-    [
-      "OpenRouter (Pay as you go)",
-      "  Credits: 41% used, $10.25 of $25.00",
-      "  Balance: $14.75 left",
-    ].join("\n"),
+    "OpenRouter (Pay as you go)\n  Credits: $14.75 available",
   );
 });
 

@@ -18,7 +18,7 @@ GitHub Copilot (Individual)
   Completions: 0% used, resets Sep 1 at 12:00am
 
 OpenRouter (Pay as you go)
-  Credits: 41% used, $10.25 of $25.00
+  Credits: $14.75 available
 ```
 
 ## Install
@@ -68,8 +68,8 @@ Notes:
   not the short-lived Copilot API token. A generic `gh auth login` is only considered when Copilot is
   active or scoped in Pi, so a normal GitHub login does not imply a Copilot subscription.
   Org-managed seats report no per-seat quota, so the plan shows with no meters.
-- **OpenRouter** is prepaid credits rather than a plan: Credits meters lifetime spend against
-  top-ups. Balance and per-key caps are intentionally omitted to keep the report concise.
+- **OpenRouter** is prepaid credits rather than a plan: Credits shows the remaining balance.
+  Lifetime spend, percentage used, and per-key caps are intentionally omitted.
 
 Meters are percentages where a denominator exists; meters without one show the figure instead.
 

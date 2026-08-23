@@ -1,6 +1,6 @@
 {
   "name": "@destiner/pi-usage",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "/usage for pi: how much of each coding subscription is spent — Claude Code, Codex, Cursor, Copilot, OpenCode Go, Z.ai, OpenRouter",
   "type": "module",
   "license": "MIT",

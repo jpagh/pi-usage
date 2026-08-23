@@ -1,6 +1,5 @@
 import { formatDollars } from "../format.ts";
 import {
-  clampPercent,
   envValue,
   errorMessage,
   finiteNumber,
@@ -19,8 +18,8 @@ const KEY_URL = "https://openrouter.ai/api/v1/key";
 
 /**
  * Prepaid credits rather than a plan: `total_credits` is everything ever added to the account and
- * `total_usage` is lifetime spend, so the meter is spend against top-ups. Keep OpenRouter to this
- * single account-level meter; balance and per-key caps are redundant with the same credit pool.
+ * `total_usage` is lifetime spend, so subtract it from top-ups to show the only figure that matters:
+ * how much prepaid credit remains available.
  */
 export function creditWindows(body: unknown): UsageWindow[] {
   const data = record(record(body)?.data);
@@ -32,10 +31,7 @@ export function creditWindows(body: unknown): UsageWindow[] {
   return [
     {
       label: "Credits",
-      ...(credits > 0
-        ? { usedPercent: clampPercent((spent / credits) * 100) }
-        : {}),
-      trailer: `${formatDollars(spent)} of ${formatDollars(credits)}`,
+      trailer: `${formatDollars(Math.max(0, credits - spent))} available`,
     },
   ];
 }
