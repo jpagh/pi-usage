@@ -12,7 +12,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { plainFormat, renderUsageLines, visibleReports } from "./format.ts";
+import {
+  formatReset,
+  plainFormat,
+  renderUsageLines,
+  visibleReports,
+} from "./format.ts";
 import { claudeProvider } from "./providers/claude.ts";
 import { codexProvider } from "./providers/codex.ts";
 import { copilotProvider, ghHostsToken } from "./providers/copilot.ts";
@@ -67,8 +72,10 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
 /** A context whose provider auth is empty unless a test supplies one. */
 function fakeContext(
   auth: Record<string, { source: string; apiKey: string }> = {},
+  scopedProviders: string[] = [],
 ) {
   return {
+    scopedModels: scopedProviders.map((provider) => ({ model: { provider } })),
     modelRegistry: {
       getProviderAuth: async (id: string) => {
         const entry = auth[id];
@@ -132,8 +139,9 @@ async function check(name: string, run: () => void | Promise<void>) {
 async function fetchProvider(
   provider: ProviderDefinition,
   auth?: Record<string, { source: string; apiKey: string }>,
+  scopedProviders?: string[],
 ): Promise<ProviderResult> {
-  return provider.fetch(fakeContext(auth));
+  return provider.fetch(fakeContext(auth, scopedProviders));
 }
 
 function windowsOf(result: ProviderResult): Record<string, number | undefined> {
@@ -160,11 +168,29 @@ await check("claude: maps five_hour/seven_day from Claude Code credentials", asy
     body: {
       five_hour: { utilization: 77, resets_at: "2026-08-19T20:00:00Z" },
       seven_day: { utilization: 72.4, resets_at: "2026-08-22T05:00:00Z" },
+      limits: [
+        {
+          kind: "weekly_scoped",
+          percent: 5,
+          resets_at: "2026-08-22T05:00:00Z",
+          scope: { model: { display_name: "Fable" } },
+          is_active: false,
+        },
+      ],
+    },
+  };
+  routes["https://api.anthropic.com/api/oauth/profile"] = {
+    body: {
+      organization: {
+        organization_type: "claude_max",
+        rate_limit_tier: "default_claude_max_20x",
+      },
     },
   };
 
   const result = await fetchProvider(claudeProvider);
-  assert.deepEqual(windowsOf(result), { Session: 77, Week: 72.4 });
+  assert.deepEqual(windowsOf(result), { Session: 77, Week: 72.4, Fable: 5 });
+  assert.equal(result.status === "ok" ? result.plan : undefined, "Max 20x");
   assert.equal(calls[0]?.headers.Authorization, "Bearer sk-ant-oat-test");
   assert.equal(calls[0]?.headers["anthropic-beta"], "oauth-2025-04-20");
 });
@@ -280,6 +306,11 @@ await check("codex: classifies windows by duration, not payload order", async ()
   reset();
   routes["https://chatgpt.com/backend-api/wham/usage"] = {
     body: {
+      plan_type: "prolite",
+      rate_limit_reset_credits: {
+        available_count: 1,
+        applicable_available_count: 0,
+      },
       rate_limit: {
         primary_window: {
           used_percent: 96,
@@ -303,7 +334,12 @@ await check("codex: classifies windows by duration, not payload order", async ()
       }),
     },
   });
-  assert.deepEqual(windowsOf(result), { Session: 12, Week: 96 });
+  assert.deepEqual(windowsOf(result), {
+    Session: 12,
+    Week: 96,
+    Resets: undefined,
+  });
+  assert.equal(result.status === "ok" ? result.plan : undefined, "Pro Lite");
   assert.equal(calls[0]?.headers["chatgpt-account-id"], "acct_123");
 });
 
@@ -643,9 +679,26 @@ await check("copilot: falls back to the gh CLI token", async () => {
   );
   routes["https://api.github.com/copilot_internal/user"] = { body: copilotPaid };
 
-  const result = await fetchProvider(copilotProvider);
+  const result = await fetchProvider(
+    copilotProvider,
+    undefined,
+    ["github-copilot"],
+  );
   assert.equal(result.status, "ok");
   assert.equal(calls[0]?.headers.Authorization, "token gho_cli_token");
+});
+
+await check("copilot: a generic gh login is ignored unless Copilot is configured", async () => {
+  reset();
+  mkdirSync(join(home, ".config", "gh"), { recursive: true });
+  writeFileSync(
+    join(home, ".config", "gh", "hosts.yml"),
+    "github.com:\n    oauth_token: gho_cli_token\n",
+  );
+
+  const result = await fetchProvider(copilotProvider);
+  assert.equal(result.status, "absent");
+  assert.equal(calls.length, 0);
 });
 
 await check("copilot: falls back to Pi's stored GitHub token", async () => {
@@ -876,7 +929,7 @@ await check("zai: legacy GLM_API_KEY is accepted", async () => {
 
 // ---------------------------------------------------------------- OpenRouter
 
-await check("openrouter: credits meter plus balance, with the key's spend cap", async () => {
+await check("openrouter: only shows the account credits meter", async () => {
   reset({ OPENROUTER_API_KEY: "sk-or-test" });
   routes["https://openrouter.ai/api/v1/credits"] = {
     body: { data: { total_credits: 25, total_usage: 10.25 } },
@@ -898,17 +951,13 @@ await check("openrouter: credits meter plus balance, with the key's spend cap", 
   if (result.status !== "ok") throw new Error("unreachable");
   assert.deepEqual(
     result.windows.map((w) => [w.label, w.usedPercent, w.trailer]),
-    [
-      ["Credits", 41, "$10.25 of $25.00"],
-      ["Balance", undefined, "$14.75 left"],
-      ["Key limit", 25, "$5.00 of $20.00"],
-    ],
+    [["Credits", 41, "$10.25 of $25.00"]],
   );
   assert.equal(result.plan, "Pay as you go");
   assert.equal(calls[0]?.headers.Authorization, "Bearer sk-or-test");
 });
 
-await check("openrouter: an account that never topped up still reports a balance", async () => {
+await check("openrouter: an account that never topped up reports zero credits", async () => {
   reset({ OPENROUTER_API_KEY: "sk-or-test" });
   routes["https://openrouter.ai/api/v1/credits"] = {
     body: { data: { total_credits: 0, total_usage: 0 } },
@@ -922,12 +971,12 @@ await check("openrouter: an account that never topped up still reports a balance
   if (result.status !== "ok") throw new Error("unreachable");
   assert.deepEqual(
     result.windows.map((w) => [w.label, w.trailer]),
-    [["Balance", "$0.00 left"]],
+    [["Credits", "$0.00 of $0.00"]],
   );
   assert.equal(result.plan, "Free tier");
 });
 
-await check("openrouter: one gated endpoint still yields the other's rows", async () => {
+await check("openrouter: credits endpoint failure is reported", async () => {
   reset({ OPENROUTER_API_KEY: "sk-or-test" });
   routes["https://openrouter.ai/api/v1/credits"] = {
     status: 404,
@@ -938,12 +987,8 @@ await check("openrouter: one gated endpoint still yields the other's rows", asyn
   };
 
   const result = await fetchProvider(openrouterProvider);
-  assert.equal(result.status, "ok");
-  if (result.status !== "ok") throw new Error("unreachable");
-  assert.deepEqual(
-    result.windows.map((w) => [w.label, w.usedPercent]),
-    [["Key limit", 75]],
-  );
+  assert.equal(result.status, "error");
+  assert.match(result.status === "error" ? result.message : "", /HTTP 404/);
 });
 
 await check("openrouter: a rejected key is an error, a missing key is absent", async () => {
@@ -972,6 +1017,15 @@ await check("openrouter: a rejected key is an error, a missing key is absent", a
 });
 
 // ---------------------------------------------------------------- rendering
+
+await check("render: near-term resets use weekdays instead of calendar dates", () => {
+  const now = new Date(2026, 7, 23, 12, 0);
+  const thursday = new Date(2026, 7, 27, 12, 6);
+  assert.match(formatReset(thursday.getTime(), now), /^resets Thu at /);
+
+  const later = new Date(2026, 8, 8, 12, 6);
+  assert.doesNotMatch(formatReset(later.getTime(), now), /^resets \w{3} at /);
+});
 
 await check("render: absent providers are hidden unless requested", () => {
   const reports = [

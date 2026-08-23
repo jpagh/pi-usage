@@ -76,13 +76,18 @@ export function nonEmptyString(value: unknown): string | undefined {
 
 export async function request(
   url: string,
-  init: { method?: string; headers: Record<string, string>; body?: string },
+  init: {
+    method?: string;
+    headers: Record<string, string>;
+    body?: string;
+    timeoutMs?: number;
+  },
 ): Promise<HttpResult> {
   const response = await fetch(url, {
     method: init.method ?? "GET",
     headers: init.headers,
     body: init.body,
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(init.timeoutMs ?? REQUEST_TIMEOUT_MS),
   });
   const text = await response.text();
   let body: unknown;

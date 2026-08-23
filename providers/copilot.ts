@@ -54,7 +54,7 @@ export function ghHostsToken(text: string): string | undefined {
  * wants the GitHub token, not the short-lived Copilot API token, so Pi's credential contributes its
  * refresh value (which is the GitHub OAuth token) rather than what `getProviderAuth` would hand back.
  */
-async function resolveToken(): Promise<string | undefined> {
+async function resolveToken(allowGhFallback: boolean): Promise<string | undefined> {
   for (const file of ["apps.json", "hosts.json"]) {
     const config = await readJsonIfPresent(
       homePath(".config", "github-copilot", file),
@@ -63,13 +63,16 @@ async function resolveToken(): Promise<string | undefined> {
     if (token) return token;
   }
 
+  const piToken = nonEmptyString(
+    (await piStoredCredential("github-copilot"))?.refresh,
+  );
+  if (piToken) return piToken;
+
+  if (!allowGhFallback) return undefined;
   const ghHosts = await readTextIfPresent(
     homePath(".config", "gh", "hosts.yml"),
   ).catch(() => undefined);
-  const ghToken = ghHosts && ghHostsToken(ghHosts);
-  if (ghToken) return ghToken;
-
-  return nonEmptyString((await piStoredCredential("github-copilot"))?.refresh);
+  return ghHosts ? ghHostsToken(ghHosts) : undefined;
 }
 
 function planLabel(value: unknown): string | undefined {
@@ -133,8 +136,13 @@ function legacyWindow(
 
 export const copilotProvider: ProviderDefinition = {
   name: "GitHub Copilot",
-  fetch: async (): Promise<ProviderResult> => {
-    const token = await resolveToken();
+  fetch: async (ctx): Promise<ProviderResult> => {
+    // A generic `gh auth login` token does not prove the user has Copilot. Only use it when
+    // Copilot is active or scoped in Pi; editor/Pi Copilot credentials remain enough on their own.
+    const copilotConfigured =
+      ctx.model?.provider === "github-copilot" ||
+      ctx.scopedModels.some(({ model }) => model.provider === "github-copilot");
+    const token = await resolveToken(copilotConfigured);
     if (!token) {
       return {
         status: "absent",

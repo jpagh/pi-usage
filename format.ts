@@ -96,12 +96,21 @@ export function formatReset(
     date.getDate() === now.getDate();
   if (sameDay) return `resets ${formatTime(date)}`;
 
-  const includeYear = date.getFullYear() !== now.getFullYear();
-  const day = date.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    ...(includeYear ? { year: "numeric" as const } : {}),
-  });
+  const calendarDay = (value: Date) =>
+    Date.UTC(value.getFullYear(), value.getMonth(), value.getDate());
+  const daysAway = Math.round(
+    (calendarDay(date) - calendarDay(now)) / (24 * 60 * 60 * 1_000),
+  );
+  const day =
+    daysAway > 0 && daysAway < 7
+      ? date.toLocaleDateString(undefined, { weekday: "short" })
+      : date.toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+          ...(date.getFullYear() !== now.getFullYear()
+            ? { year: "numeric" as const }
+            : {}),
+        });
   return `resets ${day} at ${formatTime(date)}`;
 }
 

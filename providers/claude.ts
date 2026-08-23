@@ -8,6 +8,7 @@ import {
   finiteNumber,
   homePath,
   httpErrorMessage,
+  nonEmptyString,
   parseReset,
   piStoredCredential,
   readJsonIfPresent,
@@ -20,6 +21,7 @@ import {
 } from "../shared.ts";
 
 const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
+const PROFILE_URL = "https://api.anthropic.com/api/oauth/profile";
 const KEYCHAIN_SERVICE = "Claude Code-credentials";
 
 function window(
@@ -55,6 +57,54 @@ function keychainCredentials(service: string): Record<string, unknown> | undefin
   } catch {
     return undefined;
   }
+}
+
+function titleWords(value: string): string {
+  return value
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function planLabel(profileBody: unknown): string | undefined {
+  const organization = record(record(profileBody)?.organization);
+  const organizationType = nonEmptyString(organization?.organization_type);
+  if (!organizationType) return undefined;
+
+  const plan = titleWords(organizationType.replace(/^claude_/, ""));
+  const tier = nonEmptyString(organization?.rate_limit_tier);
+  const multiplier = tier?.match(/_(5x|20x)$/)?.[1];
+  return multiplier && plan.toLowerCase() === "max"
+    ? `${plan} ${multiplier}`
+    : plan;
+}
+
+function scopedWindows(usage: Record<string, unknown> | undefined): UsageWindow[] {
+  if (!Array.isArray(usage?.limits)) return [];
+
+  const seen = new Set<string>();
+  const windows: UsageWindow[] = [];
+  for (const raw of usage.limits) {
+    const limit = record(raw);
+    const scope = record(limit?.scope);
+    const model = record(scope?.model);
+    const label = nonEmptyString(model?.display_name);
+    const usedPercent = finiteNumber(limit?.percent);
+    if (limit?.kind !== "weekly_scoped" || !label || usedPercent === undefined) {
+      continue;
+    }
+
+    const key = label.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    windows.push({
+      label,
+      usedPercent: clampPercent(usedPercent),
+      resetsAt: parseReset(limit?.resets_at),
+    });
+  }
+  return windows;
 }
 
 /**
@@ -105,13 +155,18 @@ export const claudeProvider: ProviderDefinition = {
     }
 
     try {
-      const { status, body } = await request(USAGE_URL, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "anthropic-beta": "oauth-2025-04-20",
-          "user-agent": "pi-subscription-usage/1.0",
-        },
-      });
+      const headers = {
+        Authorization: `Bearer ${accessToken}`,
+        "anthropic-beta": "oauth-2025-04-20",
+        "user-agent": "pi-subscription-usage/1.0",
+      };
+      const [usageResponse, profileResponse] = await Promise.all([
+        request(USAGE_URL, { headers }),
+        request(PROFILE_URL, { headers, timeoutMs: 3_000 }).catch(
+          () => undefined,
+        ),
+      ]);
+      const { status, body } = usageResponse;
       if (status === 401 || status === 403) {
         return {
           status: "error",
@@ -126,8 +181,16 @@ export const claudeProvider: ProviderDefinition = {
       const windows = [
         window("Session", record(usage?.five_hour)),
         window("Week", record(usage?.seven_day)),
+        ...scopedWindows(usage),
       ].filter((value): value is UsageWindow => value !== undefined);
-      return { status: "ok", windows };
+      return {
+        status: "ok",
+        plan:
+          profileResponse && profileResponse.status >= 200 && profileResponse.status < 300
+            ? planLabel(profileResponse.body)
+            : undefined,
+        windows,
+      };
     } catch (error) {
       return { status: "error", message: errorMessage(error) };
     }

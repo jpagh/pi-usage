@@ -14,6 +14,24 @@ import {
 
 const USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 
+function planLabel(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  return value
+    .replace(/prolite/gi, "pro lite")
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function resetCreditWindow(body: Record<string, unknown> | undefined): UsageWindow | undefined {
+  const credits = record(body?.rate_limit_reset_credits);
+  const available = finiteNumber(credits?.available_count);
+  if (available === undefined || available <= 0) return undefined;
+  const count = Math.floor(available);
+  return { label: "Resets", trailer: `${count} banked` };
+}
+
 function windowSeconds(value: Record<string, unknown>): number | undefined {
   const seconds = finiteNumber(value.limit_window_seconds);
   if (seconds !== undefined) return seconds;
@@ -108,9 +126,15 @@ export const codexProvider: ProviderDefinition = {
         return { status: "error", message: httpErrorMessage(status) };
       }
 
+      const usage = record(body);
+      const resetCredit = resetCreditWindow(usage);
       return {
         status: "ok",
-        windows: classifyCodexWindows(record(record(body)?.rate_limit)),
+        plan: planLabel(usage?.plan_type),
+        windows: [
+          ...classifyCodexWindows(record(usage?.rate_limit)),
+          ...(resetCredit ? [resetCredit] : []),
+        ],
       };
     } catch (error) {
       return { status: "error", message: errorMessage(error) };

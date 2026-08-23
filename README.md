@@ -4,12 +4,14 @@ A [pi](https://pi.dev) extension that answers "how much of my coding subscriptio
 in one command, across every provider you're signed in to.
 
 ```
-Claude Code
-  Session: 13% used, resets Aug 20 at 12:59am
-  Week:    74% used, resets Aug 22 at 4:59am
+Claude Code (Max 20x)
+  Session: 13% used, resets 12:59am
+  Week:    74% used, resets Sat at 4:59am
+  Fable:   68% used, resets Sat at 4:59am
 
-Codex
-  Week: 96% used, resets Aug 20 at 8:26am
+Codex (Pro Lite)
+  Week:   96% used, resets Thu at 8:26am
+  Resets: 1 banked
 
 GitHub Copilot (Individual)
   Chat:        0% used, resets Sep 1 at 12:00am
@@ -17,7 +19,6 @@ GitHub Copilot (Individual)
 
 OpenRouter (Pay as you go)
   Credits: 41% used, $10.25 of $25.00
-  Balance: $14.75 left
 ```
 
 ## Install
@@ -45,13 +46,13 @@ places the vendors' own tools already put them, and never logged, copied, or per
 
 | Provider | Meters | Credentials, in order |
 |---|---|---|
-| Claude Code | Session, Week | pi's `anthropic` OAuth, then `~/.claude/.credentials.json` (`CLAUDE_CONFIG_DIR`), then the macOS keychain |
-| Codex | Session, Week | pi's `openai-codex` OAuth |
+| Claude Code | Session, Week, model-scoped weekly limits (such as Fable) | pi's `anthropic` OAuth, then `~/.claude/.credentials.json` (`CLAUDE_CONFIG_DIR`), then the macOS keychain |
+| Codex | Session, Week, banked resets | pi's `openai-codex` OAuth |
 | Cursor | Cycle | `CURSOR_API_KEY`, then the CLI's `auth.json`, then Cursor's `state.vscdb`, then the macOS keychain; `CURSOR_SESSION_TOKEN` overrides all of them |
 | GitHub Copilot | Credits, Chat, Completions | `~/.config/github-copilot/{apps,hosts}.json`, then `~/.config/gh/hosts.yml`, then pi's `github-copilot` credential |
 | OpenCode Go | Session, Week, Month | `auth.json` in OpenCode's data dir (`OPENCODE_DATA_DIR`, `XDG_DATA_HOME`), then pi's `opencode-go` key |
 | Z.ai (GLM Coding Plan) | Session, Week | `ZAI_API_KEY`, `GLM_API_KEY`, then pi's `zai` key |
-| OpenRouter | Credits, Balance, Key limit | `OPENROUTER_API_KEY`, then pi's `openrouter` key |
+| OpenRouter | Credits | `OPENROUTER_API_KEY`, then pi's `openrouter` key |
 
 Notes:
 
@@ -63,11 +64,12 @@ Notes:
   skips credential discovery entirely.
 - **Claude Code** on macOS keeps its credential in the login keychain and writes no
   `.credentials.json` at all, so the keychain is read when the file is missing.
-- **Copilot** needs the GitHub OAuth token that `gh auth login` or a Copilot editor plugin writes,
-  not the short-lived Copilot API token. Org-managed seats report no per-seat quota, so the plan
-  shows with no meters.
+- **Copilot** needs the GitHub OAuth token that a Copilot editor plugin or Pi's Copilot login writes,
+  not the short-lived Copilot API token. A generic `gh auth login` is only considered when Copilot is
+  active or scoped in Pi, so a normal GitHub login does not imply a Copilot subscription.
+  Org-managed seats report no per-seat quota, so the plan shows with no meters.
 - **OpenRouter** is prepaid credits rather than a plan: Credits meters lifetime spend against
-  top-ups, Balance is what's left, and Key limit appears only when the key has a spend cap.
+  top-ups. Balance and per-key caps are intentionally omitted to keep the report concise.
 
 Meters are percentages where a denominator exists; meters without one show the figure instead.
 

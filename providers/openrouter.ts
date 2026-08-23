@@ -19,9 +19,8 @@ const KEY_URL = "https://openrouter.ai/api/v1/key";
 
 /**
  * Prepaid credits rather than a plan: `total_credits` is everything ever added to the account and
- * `total_usage` is lifetime spend, so the meter is spend against top-ups and the balance is what is
- * left. An account that has never topped up reports zero credits — it still gets a balance row, since
- * a measured $0.00 is information, not missing data.
+ * `total_usage` is lifetime spend, so the meter is spend against top-ups. Keep OpenRouter to this
+ * single account-level meter; balance and per-key caps are redundant with the same credit pool.
  */
 export function creditWindows(body: unknown): UsageWindow[] {
   const data = record(record(body)?.data);
@@ -30,50 +29,22 @@ export function creditWindows(body: unknown): UsageWindow[] {
 
   const spent = Math.max(0, usage);
   const credits = Math.max(0, finiteNumber(data?.total_credits) ?? 0);
-  const windows: UsageWindow[] = [];
-
-  if (credits > 0) {
-    windows.push({
+  return [
+    {
       label: "Credits",
-      usedPercent: clampPercent((spent / credits) * 100),
+      ...(credits > 0
+        ? { usedPercent: clampPercent((spent / credits) * 100) }
+        : {}),
       trailer: `${formatDollars(spent)} of ${formatDollars(credits)}`,
-    });
-  }
-  windows.push({
-    label: "Balance",
-    trailer: `${formatDollars(Math.max(0, credits - spent))} left`,
-  });
-  return windows;
+    },
+  ];
 }
 
-/** The per-key spend cap, when this key has one. `limit_remaining` is what is left of it. */
-export function keyWindows(body: unknown): {
-  plan?: string;
-  windows: UsageWindow[];
-} {
+/** The key endpoint still tells us whether this is a free or pay-as-you-go account. */
+function keyPlan(body: unknown): string | undefined {
   const data = record(record(body)?.data);
-  const plan =
-    typeof data?.is_free_tier === "boolean"
-      ? data.is_free_tier
-        ? "Free tier"
-        : "Pay as you go"
-      : undefined;
-
-  const limit = finiteNumber(data?.limit);
-  if (limit === undefined || limit <= 0) return { plan, windows: [] };
-
-  const remaining = Math.max(0, finiteNumber(data?.limit_remaining) ?? 0);
-  const used = Math.max(0, limit - remaining);
-  return {
-    plan,
-    windows: [
-      {
-        label: "Key limit",
-        usedPercent: clampPercent((used / limit) * 100),
-        trailer: `${formatDollars(used)} of ${formatDollars(limit)}`,
-      },
-    ],
-  };
+  if (typeof data?.is_free_tier !== "boolean") return undefined;
+  return data.is_free_tier ? "Free tier" : "Pay as you go";
 }
 
 function rejected(response: HttpResult | undefined): boolean {
@@ -112,24 +83,20 @@ export const openrouterProvider: ProviderDefinition = {
         request(KEY_URL, { headers }).catch(() => undefined),
       ]);
 
-      if (rejected(credits) || (rejected(key) && !ok(credits))) {
+      if (rejected(credits)) {
         return { status: "error", message: "OpenRouter key was rejected" };
       }
-      if (!ok(credits) && !ok(key)) {
+      if (!ok(credits)) {
         return {
           status: "error",
-          message: httpErrorMessage(credits?.status ?? key?.status ?? 0),
+          message: httpErrorMessage(credits?.status ?? 0),
         };
       }
 
-      const fromKey = ok(key) ? keyWindows(key?.body) : { windows: [] };
       return {
         status: "ok",
-        plan: fromKey.plan,
-        windows: [
-          ...(ok(credits) ? creditWindows(credits?.body) : []),
-          ...fromKey.windows,
-        ],
+        plan: ok(key) ? keyPlan(key?.body) : undefined,
+        windows: creditWindows(credits?.body),
       };
     } catch (error) {
       return { status: "error", message: errorMessage(error) };

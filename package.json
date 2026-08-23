@@ -1,6 +1,6 @@
 {
   "name": "@destiner/pi-usage",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "/usage for pi: how much of each coding subscription is spent — Claude Code, Codex, Cursor, Copilot, OpenCode Go, Z.ai, OpenRouter",
   "type": "module",
   "license": "MIT",
@@ -27,9 +27,18 @@
     "openrouter"
   ],
   "pi": {
-    "extensions": ["./index.ts"]
+    "extensions": [
+      "./index.ts"
+    ]
   },
-  "files": ["index.ts", "format.ts", "shared.ts", "providers", "README.md", "LICENSE"],
+  "files": [
+    "index.ts",
+    "format.ts",
+    "shared.ts",
+    "providers",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "node test.ts",
     "typecheck": "tsc --noEmit"
