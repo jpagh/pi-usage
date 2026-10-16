@@ -92,52 +92,65 @@ function accountId(accessToken: string): string | undefined {
     : undefined;
 }
 
-export const codexProvider: ProviderDefinition = {
-  name: "Codex",
-  fetch: async (ctx): Promise<ProviderResult> => {
-    const resolved = await ctx.modelRegistry
-      .getProviderAuth("openai-codex")
-      .catch(() => undefined);
-    const accessToken = resolved?.auth.apiKey;
-    if (!resolved || resolved.source !== "OAuth" || !accessToken) {
-      return { status: "absent", message: "not connected in Pi" };
-    }
+export function codexProviderFor(
+  providerId: string,
+  name: string,
+): ProviderDefinition {
+  return {
+    name,
+    fetch: async (ctx): Promise<ProviderResult> => {
+      const resolved = await ctx.modelRegistry
+        .getProviderAuth(providerId)
+        .catch(() => undefined);
+      const accessToken = resolved?.auth.apiKey;
+      if (!resolved || resolved.source !== "OAuth" || !accessToken) {
+        return { status: "absent", message: "not connected in Pi" };
+      }
 
-    const account = accountId(accessToken);
-    if (!account) {
-      return { status: "error", message: "could not identify the account" };
-    }
+      const account = accountId(accessToken);
+      if (!account) {
+        return { status: "error", message: "could not identify the account" };
+      }
 
-    try {
-      const { status, body } = await request(USAGE_URL, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "chatgpt-account-id": account,
-          "user-agent": "pi-subscription-usage/1.0",
-        },
-      });
-      if (status === 401 || status === 403) {
+      try {
+        const { status, body } = await request(USAGE_URL, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "chatgpt-account-id": account,
+            "user-agent": "pi-subscription-usage/1.0",
+          },
+        });
+        if (status === 401 || status === 403) {
+          return {
+            status: "error",
+            message: "Codex token was rejected — sign in again",
+          };
+        }
+        if (status < 200 || status >= 300) {
+          return { status: "error", message: httpErrorMessage(status) };
+        }
+
+        const usage = record(body);
+        const resetCredit = resetCreditWindow(usage);
         return {
-          status: "error",
-          message: "Codex token was rejected — sign in again",
+          status: "ok",
+          plan: planLabel(usage?.plan_type),
+          windows: [
+            ...classifyCodexWindows(record(usage?.rate_limit)),
+            ...(resetCredit ? [resetCredit] : []),
+          ],
         };
+      } catch (error) {
+        return { status: "error", message: errorMessage(error) };
       }
-      if (status < 200 || status >= 300) {
-        return { status: "error", message: httpErrorMessage(status) };
-      }
+    },
+  };
+}
 
-      const usage = record(body);
-      const resetCredit = resetCreditWindow(usage);
-      return {
-        status: "ok",
-        plan: planLabel(usage?.plan_type),
-        windows: [
-          ...classifyCodexWindows(record(usage?.rate_limit)),
-          ...(resetCredit ? [resetCredit] : []),
-        ],
-      };
-    } catch (error) {
-      return { status: "error", message: errorMessage(error) };
-    }
-  },
-};
+export const codexProvider = codexProviderFor("openai-codex", "Codex");
+
+/** A second Codex login (Pi's `openai-codex-work` provider) reports as its own subscription. */
+export const codexWorkProvider = codexProviderFor(
+  "openai-codex-work",
+  "Codex (work)",
+);

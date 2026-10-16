@@ -48,6 +48,7 @@ places the vendors' own tools already put them, and never logged, copied, or per
 |---|---|---|
 | Claude Code | Session, Week, model-scoped weekly limits (such as Fable) | pi's `anthropic` OAuth, then `~/.claude/.credentials.json` (`CLAUDE_CONFIG_DIR`), then the macOS keychain |
 | Codex | Session, Week, banked resets | pi's `openai-codex` OAuth |
+| Codex (work) | Session, Week, banked resets | pi's `openai-codex-work` OAuth |
 | Cursor | Cycle | `CURSOR_API_KEY`, then the CLI's `auth.json`, then Cursor's `state.vscdb`, then the macOS keychain; `CURSOR_SESSION_TOKEN` overrides all of them |
 | GitHub Copilot | Credits, Chat, Completions | `~/.config/github-copilot/{apps,hosts}.json`, then `~/.config/gh/hosts.yml`, then pi's `github-copilot` credential |
 | OpenCode Go | Session, Week, Month | `auth.json` in OpenCode's data dir (`OPENCODE_DATA_DIR`, `XDG_DATA_HOME`), then pi's `opencode-go` key |

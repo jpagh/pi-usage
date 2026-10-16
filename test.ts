@@ -19,7 +19,7 @@ import {
   visibleReports,
 } from "./format.ts";
 import { claudeProvider } from "./providers/claude.ts";
-import { codexProvider } from "./providers/codex.ts";
+import { codexProvider, codexWorkProvider } from "./providers/codex.ts";
 import { copilotProvider, ghHostsToken } from "./providers/copilot.ts";
 import {
   cliAuthPath,
@@ -347,6 +347,34 @@ await check("codex: without a Pi credential it is absent", async () => {
   reset();
   const result = await fetchProvider(codexProvider);
   assert.equal(result.status, "absent");
+});
+
+await check("codex (work): reads the second Codex login under its own name", async () => {
+  reset();
+  routes["https://chatgpt.com/backend-api/wham/usage"] = {
+    body: {
+      plan_type: "pro",
+      rate_limit: {
+        primary_window: {
+          used_percent: 42,
+          limit_window_seconds: 5 * 60 * 60,
+          reset_at: 1787169599,
+        },
+      },
+    },
+  };
+
+  const result = await fetchProvider(codexWorkProvider, {
+    "openai-codex-work": {
+      source: "OAuth",
+      apiKey: jwt({
+        "https://api.openai.com/auth": { chatgpt_account_id: "acct_work" },
+      }),
+    },
+  });
+  assert.equal(codexWorkProvider.name, "Codex (work)");
+  assert.deepEqual(windowsOf(result), { Session: 42 });
+  assert.equal(calls[0]?.headers["chatgpt-account-id"], "acct_work");
 });
 
 // ---------------------------------------------------------------- Cursor
